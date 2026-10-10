@@ -121,4 +121,259 @@ form.addEventListener('submit', event => {
   // then show a confirmation screen with this same optional WhatsApp notification.
   const url = `https://wa.me/27605503004?text=${encodeURIComponent(lines.join('\n'))}`;
   window.open(url, '_blank', 'noopener');
-});
+});  
+
+/* -------------------------------------------------------
+   Google Places autocomplete for Step Ahead addresses
+   ------------------------------------------------------- */
+
+const GOOGLE_MAPS_API_KEY = 'AIzaSyCyPGANwGYXHPhLpyq580kU0EQywL2949M';
+
+async function loadGooglePlaces() {
+  if (window.google?.maps?.importLibrary) {
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+
+    script.src =
+      `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+        GOOGLE_MAPS_API_KEY
+      )}&v=weekly&loading=async`;
+
+    script.async = true;
+    script.defer = true;
+
+    script.onload = resolve;
+    script.onerror = () =>
+      reject(new Error('Google Maps could not be loaded.'));
+
+    document.head.appendChild(script);
+  });
+}
+
+async function setupAddressAutocomplete() {
+  try {
+    await loadGooglePlaces();
+
+    const {
+      AutocompleteSuggestion,
+      AutocompleteSessionToken
+    } = await google.maps.importLibrary('places');
+
+    const addressFields = [
+      document.getElementById('pickupAddress'),
+      document.getElementById('dropoffAddress'),
+    ].filter(Boolean);
+
+    addressFields.forEach((input) => {
+      let sessionToken = new AutocompleteSessionToken();
+      let debounceTimer = null;
+      let currentSuggestions = [];
+      let activeIndex = -1;
+
+      const dropdown = document.createElement('div');
+
+      dropdown.className = 'google-address-suggestions';
+      dropdown.style.position = 'absolute';
+      dropdown.style.left = '0';
+      dropdown.style.right = '0';
+      dropdown.style.top = 'calc(100% + 6px)';
+      dropdown.style.zIndex = '9999';
+      dropdown.style.background = '#ffffff';
+      dropdown.style.border = '1px solid #e5e7eb';
+      dropdown.style.borderRadius = '14px';
+      dropdown.style.boxShadow = '0 10px 30px rgba(0,0,0,0.12)';
+      dropdown.style.overflow = 'hidden';
+      dropdown.style.display = 'none';
+
+      const fieldWrapper = input.parentElement;
+
+      if (fieldWrapper) {
+        fieldWrapper.style.position = 'relative';
+        fieldWrapper.appendChild(dropdown);
+      }
+
+      function closeDropdown() {
+        dropdown.innerHTML = '';
+        dropdown.style.display = 'none';
+        currentSuggestions = [];
+        activeIndex = -1;
+      }
+
+      function renderSuggestions(suggestions) {
+        dropdown.innerHTML = '';
+        currentSuggestions = suggestions;
+        activeIndex = -1;
+
+        if (!suggestions.length) {
+          closeDropdown();
+          return;
+        }
+
+        suggestions.forEach((suggestion, index) => {
+          const prediction = suggestion.placePrediction;
+          if (!prediction) return;
+
+          const button = document.createElement('button');
+
+          button.type = 'button';
+          button.style.display = 'block';
+          button.style.width = '100%';
+          button.style.border = '0';
+          button.style.background = '#ffffff';
+          button.style.padding = '14px 16px';
+          button.style.textAlign = 'left';
+          button.style.cursor = 'pointer';
+          button.style.font = 'inherit';
+          button.style.color = '#172033';
+
+          const title = document.createElement('div');
+          title.textContent = prediction.text.toString();
+          title.style.fontWeight = '600';
+
+          button.appendChild(title);
+
+          button.addEventListener('mouseenter', () => {
+            activeIndex = index;
+            updateActiveItem();
+          });
+
+          button.addEventListener('click', async () => {
+            await selectSuggestion(prediction);
+          });
+
+          dropdown.appendChild(button);
+        });
+
+        dropdown.style.display = 'block';
+      }
+
+      function updateActiveItem() {
+        [...dropdown.children].forEach((item, index) => {
+          item.style.background =
+            index === activeIndex ? '#fff4e8' : '#ffffff';
+        });
+      }
+
+      async function selectSuggestion(prediction) {
+        try {
+          const place = prediction.toPlace();
+
+          await place.fetchFields({
+            fields: ['formattedAddress', 'location'],
+          });
+
+          input.value =
+            place.formattedAddress || prediction.text.toString();
+
+          if (place.location) {
+            input.dataset.lat = String(place.location.lat());
+            input.dataset.lng = String(place.location.lng());
+          }
+
+          input.dataset.googlePlaceSelected = 'true';
+
+          closeDropdown();
+
+          sessionToken = new AutocompleteSessionToken();
+
+          if (typeof updateEstimate === 'function') {
+            updateEstimate();
+          }
+        } catch (error) {
+          console.error('Google place selection failed:', error);
+          closeDropdown();
+        }
+      }
+
+      input.addEventListener('input', () => {
+        input.dataset.googlePlaceSelected = 'false';
+        delete input.dataset.lat;
+        delete input.dataset.lng;
+
+        clearTimeout(debounceTimer);
+
+        const value = input.value.trim();
+
+        if (value.length < 2) {
+          closeDropdown();
+          return;
+        }
+
+        debounceTimer = setTimeout(async () => {
+          try {
+            const request = {
+              input: value,
+              includedRegionCodes: ['za'],
+              sessionToken,
+            };
+
+            const { suggestions } =
+              await AutocompleteSuggestion.fetchAutocompleteSuggestions(
+                request
+              );
+
+            if (input.value.trim() !== value) {
+              return;
+            }
+
+            renderSuggestions(suggestions || []);
+          } catch (error) {
+            console.error('Google autocomplete failed:', error);
+            closeDropdown();
+          }
+        }, 250);
+      });
+
+      input.addEventListener('keydown', async (event) => {
+        const items = [...dropdown.children];
+
+        if (dropdown.style.display === 'none' || !items.length) {
+          return;
+        }
+
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          activeIndex = Math.min(activeIndex + 1, items.length - 1);
+          updateActiveItem();
+        }
+
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          activeIndex = Math.max(activeIndex - 1, 0);
+          updateActiveItem();
+        }
+
+        if (event.key === 'Enter' && activeIndex >= 0) {
+          event.preventDefault();
+
+          const prediction =
+            currentSuggestions[activeIndex]?.placePrediction;
+
+          if (prediction) {
+            await selectSuggestion(prediction);
+          }
+        }
+
+        if (event.key === 'Escape') {
+          closeDropdown();
+        }
+      });
+
+      document.addEventListener('click', (event) => {
+        if (
+          event.target !== input &&
+          !dropdown.contains(event.target)
+        ) {
+          closeDropdown();
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Address autocomplete could not start:', error);
+  }
+}
+
+setupAddressAutocomplete();
