@@ -130,27 +130,54 @@ form.addEventListener('submit', event => {
 const GOOGLE_MAPS_API_KEY = 'AIzaSyCyPGANwGYXHPhLpyq580kU0EQywL2949M';
 
 async function loadGooglePlaces() {
-  if (window.google?.maps?.importLibrary) {
-    return;
+  if (!window.google?.maps?.importLibrary) {
+    ((g) => {
+      let h;
+      const p = "The Google Maps JavaScript API";
+      const c = "google";
+      const l = "importLibrary";
+      const q = "__ib__";
+      const m = document;
+      const b = window;
+
+      b[c] = b[c] || {};
+      const d = b[c].maps = b[c].maps || {};
+      const r = new Set();
+      const e = new URLSearchParams();
+
+      const u = () => h || (h = new Promise(async (f, n) => {
+        const a = m.createElement("script");
+        e.set("libraries", [...r] + "");
+
+        for (const k in g) {
+          e.set(k.replace(/[A-Z]/g, t =>
+            "_" + t[0].toLowerCase()
+          ), g[k]);
+        }
+
+        e.set("callback", c + ".maps." + q);
+        a.src = `https://maps.${c}apis.com/maps/api/js?` + e;
+        d[q] = f;
+        a.onerror = () => h = n(
+          new Error(p + " could not load.")
+        );
+        a.nonce = m.querySelector("script[nonce]")?.nonce || "";
+        m.head.append(a);
+      }));
+
+      if (d[l]) {
+        console.warn(p + " only loads once. Ignoring:", g);
+      } else {
+        d[l] = (f, ...n) =>
+          r.add(f) && u().then(() => d[l](f, ...n));
+      }
+    })({
+      key: GOOGLE_MAPS_API_KEY,
+      v: "weekly"
+    });
   }
 
-  await new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-
-    script.src =
-      `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
-        GOOGLE_MAPS_API_KEY
-      )}&v=weekly&loading=async`;
-
-    script.async = true;
-    script.defer = true;
-
-    script.onload = resolve;
-    script.onerror = () =>
-      reject(new Error('Google Maps could not be loaded.'));
-
-    document.head.appendChild(script);
-  });
+  await window.google.maps.importLibrary("places");
 }
 
 async function setupAddressAutocomplete() {
