@@ -92,7 +92,68 @@
           <div class="form-grid two"><label>Collection address<input id="pickupAddress" name="pickupAddress" placeholder="Start typing your pickup address..." autocomplete="street-address" required></label><label>Collection access<select name="pickupAccess" required><option value="">Select access</option><option>Ground floor / easy access</option><option>Stairs</option><option>Lift / apartment</option><option>Complex / security access</option><option>Other</option></select></label></div>
           <div class="form-section-title">Delivery</div>
           <div class="form-grid two"><label>Delivery address<input id="dropoffAddress" name="dropoffAddress" placeholder="Start typing your drop-off address..." autocomplete="street-address" required></label><label>Delivery access<select name="dropoffAccess" required><option value="">Select access</option><option>Ground floor / easy access</option><option>Stairs</option><option>Lift / apartment</option><option>Complex / security access</option><option>Other</option></select></label></div>
-          <div class="form-section-title">What needs to move?</div>
+          <div class="form-grid two" id="houseMovePricingFields" style="display:none">
+  <label>Number of movers
+    <select name="houseMovers">
+      <option value="2">2 movers</option>
+      <option value="3">3 movers</option>
+      <option value="4">4 movers</option>
+      <option value="5">5 movers</option>
+    </select>
+  </label>
+
+  <label>Collection floor (no usable lift)
+    <select name="pickupFloor">
+      <option value="0">Ground floor / usable lift</option>
+      <option value="1">1st floor — stairs</option>
+      <option value="2">2nd floor — stairs</option>
+      <option value="3">3rd floor — stairs</option>
+      <option value="4">4th floor — stairs</option>
+      <option value="5">5th floor — stairs</option>
+      <option value="6">6th floor — stairs</option>
+      <option value="7">7th floor — stairs</option>
+      <option value="8">8th floor — stairs</option>
+      <option value="9">9th floor — stairs</option>
+      <option value="10">10th floor — stairs</option>
+    </select>
+  </label>
+
+  <label>Delivery floor (no usable lift)
+    <select name="dropoffFloor">
+      <option value="0">Ground floor / usable lift</option>
+      <option value="1">1st floor — stairs</option>
+      <option value="2">2nd floor — stairs</option>
+      <option value="3">3rd floor — stairs</option>
+      <option value="4">4th floor — stairs</option>
+      <option value="5">5th floor — stairs</option>
+      <option value="6">6th floor — stairs</option>
+      <option value="7">7th floor — stairs</option>
+      <option value="8">8th floor — stairs</option>
+      <option value="9">9th floor — stairs</option>
+      <option value="10">10th floor — stairs</option>
+    </select>
+  </label>
+</div>
+
+<div class="form-grid two" id="deliveryPricingFields" style="display:none">
+  <label>Loading assistance
+    <select name="deliveryMovers">
+      <option value="0">No loading help</option>
+      <option value="1">1 helper — R200</option>
+      <option value="2">2 helpers — R400</option>
+      <option value="3">3 helpers — R600</option>
+    </select>
+  </label>
+
+  <label>Number of items
+    <select name="deliveryLoadSize">
+      <option value="single">One standard bulky item — included</option>
+      <option value="twoThree">2–3 items — add R100</option>
+      <option value="fourFive">4–5 items — add R200</option>
+      <option value="sixPlus">6+ items / large load — add R300</option>
+    </select>
+  </label>
+</div>
           <label>Item list<textarea name="items" rows="5" placeholder="For example: 1 queen bed, 1 couch, double-door fridge, washing machine, 10 boxes..." required></textarea></label>
           <div class="quick-items"><span>Quick add:</span><button type="button" data-item="Bed">Bed</button><button type="button" data-item="Couch">Couch</button><button type="button" data-item="Fridge">Fridge</button><button type="button" data-item="Washing machine">Washing machine</button><button type="button" data-item="Boxes">Boxes</button></div>
           <label class="photo-upload"><span class="upload-icon">📸</span><strong>Add photos of the items</strong><small>Select photos once to help us assess the job. Your photos will form part of your booking request when the Supabase booking system is connected.</small><input type="file" id="photos" accept="image/*" multiple><em>Choose photos</em></label>
