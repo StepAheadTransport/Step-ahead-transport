@@ -58,71 +58,333 @@ photosInput.addEventListener('change', () => {
 
 // Starter broad-estimate engine. These are deliberately conservative launch rules and
 // will be replaced/refined with Step Ahead's real pricing data and route calculations.
-function updateEstimate() {
-  const service = serviceSelect.value;
-  const moveSize = form.elements.moveSize.value;
-  const pickupAccess = form.elements.pickupAccess.value;
-  const dropoffAccess = form.elements.dropoffAccess.value;
-  const items = (itemsField.value || '').toLowerCase();
+let estimateRunId = 0;
+let routeRequestId = 0;
+let lastRouteKey = "";
+let lastRouteKm = null;
 
-  if (!service || !moveSize) {
-    estimateValue.textContent = 'Complete the move details to see an estimate';
-    estimateNote.textContent = 'This is a guide only. Your final quote will be confirmed by Step Ahead Transport after reviewing your booking details, route and photos.';
+function getEstimateBreakdownElement() {
+  let element = document.getElementById("estimateBreakdown");
+
+  if (!element) {
+    element = document.createElement("div");
+    element.id = "estimateBreakdown";
+    element.style.cssText =
+      "display:grid;gap:9px;margin:14px 0;padding:15px;" +
+      "border:1px solid #e5e7eb;border-radius:12px;" +
+      "background:#fff;color:#222;font-size:14px;";
+
+    estimateValue.insertAdjacentElement("afterend", element);
+  }
+
+  return element;
+}
+
+async function getDrivingDistanceKm(origin, destination) {
+  const routeKey = `${origin.trim()}|||${destination.trim()}`;
+
+  if (routeKey === lastRouteKey && lastRouteKm !== null) {
+    return lastRouteKm;
+  }
+
+  const requestId = ++routeRequestId;
+
+  // Debounce typing to reduce unnecessary route requests.
+  await new Promise(resolve => setTimeout(resolve, 900));
+
+  if (requestId !== routeRequestId) return null;
+
+  try {
+    if (!window.google?.maps?.importLibrary) return null;
+
+    const { Route } = await window.google.maps.importLibrary("routes");
+
+    const { routes } = await Route.computeRoutes({
+      origin: origin.trim(),
+      destination: destination.trim(),
+      travelMode: "DRIVING",
+      fields: ["distanceMeters"]
+    });
+
+    if (requestId !== routeRequestId) return null;
+
+    const meters = routes?.[0]?.distanceMeters;
+
+    if (typeof meters !== "number" || !Number.isFinite(meters)) {
+      return null;
+    }
+
+    lastRouteKey = routeKey;
+    lastRouteKm = Math.ceil(meters / 1000);
+
+    return lastRouteKm;
+  } catch (error) {
+    console.error("Could not calculate driving distance:", error);
+    return null;
+  }
+}
+
+async function updateEstimate() {
+  const runId = ++estimateRunId;
+  const service = serviceSelect.value;
+  const moveSize = form.elements.moveSize?.value || "";
+
+  const isHouseMove = service === "House Moving";
+  const isDelivery = service === "Furniture Delivery";
+
+  const houseFields = document.getElementById("houseMovePricingFields");
+  const deliveryFields = document.getElementById("deliveryPricingFields");
+  const moveSizeLabel = form.elements.moveSize?.closest("label");
+  const breakdown = document.getElementById("estimateBreakdown");
+
+  if (houseFields) {
+    houseFields.style.display = isHouseMove ? "grid" : "none";
+  }
+
+  if (deliveryFields) {
+    deliveryFields.style.display = isDelivery ? "grid" : "none";
+  }
+
+  // Deliveries use the delivery item selector instead of bedroom/house size.
+  if (moveSizeLabel) {
+    moveSizeLabel.style.display = isDelivery ? "none" : "";
+  }
+
+  if (form.elements.moveSize) {
+    form.elements.moveSize.required = !isDelivery;
+  }
+
+  if (!service || (!isDelivery && !moveSize)) {
+    routeRequestId++;
+    estimateValue.textContent = "Complete the move details to see an estimate";
+    estimateNote.textContent =
+      "Your final quotation will be confirmed by Step Ahead Transport.";
+    if (breakdown) breakdown.innerHTML = "";
     return null;
   }
 
-  let base = service === 'House Moving' ? 650 : service === 'Furniture Delivery' ? 500 : service === 'General Transport' ? 550 : 600;
-  const sizeAdd = {
-    'Single / a few items': 0,
-    'Small load': 200,
-    '1 bedroom': 500,
-    '2 bedroom': 900,
-    '3+ bedroom / large move': 1500,
-    'Not sure': 450
-  }[moveSize] || 0;
-  base += sizeAdd;
+  const pickupAddress =
+    document.getElementById("pickupAddress")?.value.trim() || "";
+  const dropoffAddress =
+    document.getElementById("dropoffAddress")?.value.trim() || "";
 
-  const difficultAccess = [pickupAccess, dropoffAccess].filter(v => v === 'Stairs' || v === 'Lift / apartment').length;
-  base += difficultAccess * 150;
-  if (/double-door|double door|piano|safe|large wardrobe|pool table/.test(items)) base += 250;
-  if (/trailer/.test(items)) base += 150;
+  if (!pickupAddress || !dropoffAddress) {
+    routeRequestId++;
+    estimateValue.textContent =
+      "Add both addresses to calculate your estimate";
+    estimateNote.textContent =
+      "The distance charge is R17 per kilometre between collection and delivery.";
+    if (breakdown) breakdown.innerHTML = "";
+    return null;
+  }
 
-  // Broad range: wider where the information is less certain.
-  const uncertainty = moveSize === 'Not sure' || !items.trim() ? 0.30 : 0.22;
-  const low = Math.max(350, Math.round((base * (1 - uncertainty)) / 50) * 50);
-  const high = Math.round((base * (1 + uncertainty)) / 50) * 50;
+  estimateValue.textContent = "Calculating driving distance…";
+  estimateNote.textContent =
+    "Calculating the route between your collection and delivery addresses.";
 
-  estimateValue.textContent = `R${low.toLocaleString('en-ZA')} – R${high.toLocaleString('en-ZA')}`;
-  estimateNote.textContent = 'Broad estimate only. It is not your final quotation and may change after Step Ahead reviews the route, distance, items, access requirements and photos.';
-  return { low, high };
+  const distanceKm = await getDrivingDistanceKm(
+    pickupAddress,
+    dropoffAddress
+  );
+
+  // Ignore older calculations if the customer has changed their details.
+  if (runId !== estimateRunId) return null;
+
+  if (distanceKm === null) {
+    estimateValue.textContent = "Distance could not be calculated";
+    estimateNote.textContent =
+      "Please check both addresses. If the problem continues, submit your details and we will review the route manually.";
+    const existingBreakdown = document.getElementById("estimateBreakdown");
+    if (existingBreakdown) existingBreakdown.innerHTML = "";
+    return null;
+  }
+
+  const items = (itemsField.value || "").trim();
+  const pickupAccess = form.elements.pickupAccess?.value || "";
+  const dropoffAccess = form.elements.dropoffAccess?.value || "";
+
+  let base = 0;
+  let moversCharge = 0;
+  let floorCharge = 0;
+  let accessCharge = 0;
+  let loadCharge = 0;
+
+  if (isHouseMove) {
+    const houseBasePrices = {
+      "Single / a few items": 1250,
+      "Small load": 1250,
+      "1 bedroom": 1250,
+      "2 bedroom": 1550,
+      "3 bedroom": 2500,
+      "4 bedroom": 5500,
+      "3+ bedroom / large move": 2500,
+      "Not sure": 2500
+    };
+
+    base = houseBasePrices[moveSize] ?? 2500;
+
+    const movers = Number(form.elements.houseMovers?.value || 2);
+    moversCharge = movers * 200;
+
+    const pickupFloor = Number(form.elements.pickupFloor?.value || 0);
+    const dropoffFloor = Number(form.elements.dropoffFloor?.value || 0);
+
+    // R100 per floor at each affected property without a usable lift.
+    floorCharge = (pickupFloor + dropoffFloor) * 100;
+
+    // Restricted-access surcharge applies to house moves only.
+    if (pickupAccess === "Complex / security access") {
+      accessCharge += 250;
+    }
+
+    if (dropoffAccess === "Complex / security access") {
+      accessCharge += 250;
+    }
+  } else if (isDelivery) {
+    base = 500;
+
+    const helpers = Number(form.elements.deliveryMovers?.value || 0);
+    moversCharge = helpers * 200;
+
+    const deliveryLoadSize =
+      form.elements.deliveryLoadSize?.value || "single";
+
+    const loadFees = {
+      single: 0,
+      twoThree: 100,
+      fourFive: 200,
+      sixPlus: 300
+    };
+
+    loadCharge = loadFees[deliveryLoadSize] ?? 0;
+  } else {
+    // Keep the existing starting prices for other transport services.
+    base = service === "General Transport" ? 550 : 600;
+
+    const sizeAdds = {
+      "Single / a few items": 0,
+      "Small load": 200,
+      "1 bedroom": 500,
+      "2 bedroom": 900,
+      "3 bedroom": 1500,
+      "4 bedroom": 1500,
+      "3+ bedroom / large move": 1500,
+      "Not sure": 450
+    };
+
+    base += sizeAdds[moveSize] ?? 0;
+  }
+
+  // Charge only the collection-to-delivery driving distance.
+  const distanceCharge = distanceKm * 17;
+
+  const subtotal =
+    base +
+    moversCharge +
+    distanceCharge +
+    floorCharge +
+    accessCharge +
+    loadCharge;
+
+  const deliveryLoadSize =
+    form.elements.deliveryLoadSize?.value || "single";
+
+  const needsReview =
+    moveSize === "Not sure" ||
+    moveSize === "3+ bedroom / large move" ||
+    service === "Other" ||
+    deliveryLoadSize === "sixPlus" ||
+    pickupAccess === "Other" ||
+    dropoffAccess === "Other" ||
+    !items;
+
+  // Known details: 15% provisional allowance.
+  // Uncertain or large jobs: 30% provisional allowance.
+  const allowance = needsReview ? 1.30 : 1.15;
+  const upper = Math.ceil((subtotal * allowance) / 50) * 50;
+
+  const formatRand = amount =>
+    `R${Math.round(amount).toLocaleString("en-ZA")}`;
+
+  estimateValue.textContent =
+    `${formatRand(subtotal)} – ${formatRand(upper)}`;
+
+  const breakdownElement = getEstimateBreakdownElement();
+  const rows = [
+    ["Base price", base],
+    [isDelivery ? "Loading assistance" : "Movers", moversCharge],
+    [`Distance (${distanceKm} km × R17)`, distanceCharge]
+  ];
+
+  if (floorCharge > 0) {
+    rows.push(["Floor-level surcharge", floorCharge]);
+  }
+
+  if (accessCharge > 0) {
+    rows.push(["Restricted-access surcharge", accessCharge]);
+  }
+
+  if (loadCharge > 0) {
+    rows.push(["Additional load-size charge", loadCharge]);
+  }
+
+  breakdownElement.innerHTML =
+    `<div style="font-weight:700;color:#c76513;margin-bottom:3px">` +
+    `Estimated price breakdown</div>` +
+    rows.map(([label, amount]) =>
+      `<div style="display:flex;justify-content:space-between;gap:16px">` +
+      `<span>${label}</span><strong>${formatRand(amount)}</strong></div>`
+    ).join("") +
+    `<div style="display:flex;justify-content:space-between;gap:16px;` +
+    `border-top:1px solid #e5e7eb;padding-top:10px;font-weight:700">` +
+    `<span>Calculated subtotal</span><strong>${formatRand(subtotal)}</strong></div>`;
+
+  estimateNote.textContent =
+    `Preliminary estimate based on ${distanceKm} km of driving between ` +
+    `collection and delivery. The return journey is not included. ` +
+    `Your final quotation may change after we review your items, photos, ` +
+    `access requirements and load size.`;
+
+  return { low: subtotal, high: upper, distanceKm };
 }
-
 ['change','input'].forEach(eventName => form.addEventListener(eventName, updateEstimate));
-
-form.addEventListener('submit', event => {
+form.addEventListener('submit', async event => {
   event.preventDefault();
   if (!form.reportValidity()) return;
 
-  const estimate = updateEstimate();
+  const estimate = await updateEstimate();
   const data = new FormData(form);
+
   const lines = [
-    'Hi Step Ahead Transport 👋 I\'ve just submitted my booking request through the Step Ahead website.',
-    '',
-    '*BOOKING SUMMARY*',
+    "Hi Step Ahead Transport 👋 I've just submitted my booking request through the Step Ahead website.",
+    "",
+    "*BOOKING SUMMARY*",
     `Service: ${data.get('service')}`,
     `Preferred date: ${data.get('moveDate')}`,
-    `Move size: ${data.get('moveSize')}`,
+    `Move size: ${data.get('moveSize') || 'Not applicable'}`,
+    `Collection: ${data.get('pickupAddress')}`,
+    `Delivery: ${data.get('dropoffAddress')}`,
+    `Items: ${data.get('items') || 'Not specified'}`,
+    `Name: ${data.get('name') || 'Not provided'}`,
+    `Phone: ${data.get('phone') || 'Not provided'}`
   ];
-  if (estimate) lines.push(`Broad website estimate: R${estimate.low.toLocaleString('en-ZA')} – R${estimate.high.toLocaleString('en-ZA')}`);
-  lines.push('', 'Please review my booking details and confirm the final quote.');
 
-  // Temporary pre-Supabase behaviour: opens WhatsApp with a notification only.
-  // Once Supabase is connected, this submit handler will save the booking and photos first,
-  // then show a confirmation screen with this same optional WhatsApp notification.
-  const url = `https://wa.me/27605503004?text=${encodeURIComponent(lines.join('\n'))}`;
+  if (estimate) {
+    lines.push(
+      `Preliminary website estimate: R${estimate.low.toLocaleString('en-ZA')} – R${estimate.high.toLocaleString('en-ZA')}`
+    );
+  }
+
+  lines.push(
+    '',
+    'Please review my booking details and confirm the final quotation.'
+  );
+
+  const url =
+    `https://wa.me/27605503004?text=${encodeURIComponent(lines.join('\n'))}`;
+
   window.open(url, '_blank', 'noopener');
-});  
-
+});
 /* -------------------------------------------------------
    Google Places autocomplete for Step Ahead addresses
    ------------------------------------------------------- */
